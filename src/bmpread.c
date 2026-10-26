@@ -78,7 +78,8 @@ int LoadBMP (const char* szFile, byte** ppbBits, byte** ppbPalette, int *width, 
 	BITMAPINFOHEADER bmih;
 	RGBQUAD rgrgbPalette[256];
 	ULONG cbBmpBits;
-	BYTE* pbBmpBits;
+	BYTE* pbBmpBits = NULL;
+	BYTE* pbData = NULL;
 	byte  *pb, *pbPal = NULL;
 	ULONG cbPalBytes;
 	ULONG biTrueWidth;
@@ -114,6 +115,10 @@ int LoadBMP (const char* szFile, byte** ppbBits, byte** ppbPalette, int *width, 
 	// Bogus compression?  Only non-compressed supported.
 	if (bmih.biCompression != BI_RGB)
 		{ fprintf(stderr, "invalid BMP compression type\n"); rc = -5; goto GetOut; }
+
+	// bacontsu: bogus dimensions, a malformed header must not turn into a negative/huge row stride
+	if (bmih.biWidth <= 0 || bmih.biHeight <= 0 || bmih.biWidth > 4096 || bmih.biHeight > 4096)
+		{ fprintf(stderr, "invalid BMP dimensions\n"); rc = -9; goto GetOut; }
 
 	// Figure out how many entires are actually in the table
 	if (bmih.biClrUsed == 0)
@@ -155,25 +160,37 @@ int LoadBMP (const char* szFile, byte** ppbBits, byte** ppbPalette, int *width, 
 
 	// Read bitmap bits (remainder of file)
 	cbBmpBits = bmfh.bfSize - ftell(pfile);
-	pb = malloc(cbBmpBits);
-	if (fread(pb, cbBmpBits, 1/*count*/, pfile) != 1)
+	if (cbBmpBits == 0 || cbBmpBits > 0x10000000)
+		{ fprintf(stderr, "invalid BMP data size\n"); rc = -8; goto GetOut; }
+	pbData = malloc(cbBmpBits);
+	if (pbData == NULL)
+		{ rc = -7; goto GetOut; }
+	if (fread(pbData, cbBmpBits, 1/*count*/, pfile) != 1)
 		{ rc = -7; goto GetOut; }
 
-	pbBmpBits = malloc(cbBmpBits);
+	pbBmpBits = calloc(1, cbBmpBits);
+	if (pbBmpBits == NULL)
+		{ rc = -7; goto GetOut; }
 
 	// data is actually stored with the width being rounded up to a multiple of 4
 	biTrueWidth = (bmih.biWidth + 3) & ~3;
 
+	// bacontsu: the row stride must actually be present in the data we read, otherwise the
+	// flip below reads past the end of the buffer
+	if ((ULONG)biTrueWidth * (ULONG)bmih.biHeight > cbBmpBits)
+		{ fprintf(stderr, "invalid BMP data size\n"); rc = -8; goto GetOut; }
+
 	// reverse the order of the data.
-	pb += (bmih.biHeight - 1) * biTrueWidth;
+	pb = pbData + (bmih.biHeight - 1) * biTrueWidth;
 	for(i = 0; i < bmih.biHeight; i++)
 	{
 		memmove(&pbBmpBits[biTrueWidth * i], pb, biTrueWidth);
 		pb -= biTrueWidth;
 	}
 
-	pb += biTrueWidth;
-	free(pb);
+	// bacontsu: pb is advanced above so the original allocation has to be released
+	free(pbData);
+	pbData = NULL;
 
 	*width = (WORD)bmih.biWidth;
 	*height = (WORD)bmih.biHeight;
@@ -184,6 +201,14 @@ int LoadBMP (const char* szFile, byte** ppbBits, byte** ppbPalette, int *width, 
 GetOut:
 	if (pfile)
 		fclose(pfile);
+
+	// bacontsu: only hand out/free the buffers on success, the caller owns them from here on
+	if (rc != 0)
+	{
+		free(pbPal);
+		free(pbBmpBits);
+		free(pbData);
+	}
 
 	return rc;
 }

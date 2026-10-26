@@ -18,17 +18,47 @@
 #include "monsters/activity.h"
 #include "monsters/activitymap.h"
 
+// bacontsu: the C runtime (and windows.h) may already define min/max so ours must win
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
 #define min(a,b) fmin(a,b)
 #define max(a,b) fmax(a,b)
 
+// bacontsu: case insensitive string helpers, the POSIX names are not available from the MSVC CRT
+#if defined( _MSC_VER )
+#define strnicmp _strnicmp
+#define stricmp _stricmp
+#define strcmpi _stricmp
+#else
 #define strnicmp strncasecmp
 #define stricmp strcasecmp
 #define strcmpi strcasecmp
+#endif
 
 void Sys_Error (char *error, ...) {};
 void clip_rotations( vec3_t rot );
 
 #define strcpyn( a, b ) strncpy( a, b, sizeof( a ) )
+
+// bacontsu: copy a token into a fixed size field and always NUL terminate, StudioMDL SC just
+// uses strncpy() here, which leaves the destination unterminated when the token does not fit
+void CopyString( char *dst, int dstsize, const char *src )
+{
+	if (dstsize <= 0)
+		return;
+	strncpy( dst, src, dstsize - 1 );
+	dst[dstsize - 1] = '\0';
+}
+
+// bacontsu: refuse to write past the end of one of the fixed size source tables, StudioMDL SC
+// silently corrupts memory here, which is also fatal for the non-Windows builds
+#define CHECK_LIMIT( count, max, what ) \
+	if ( ( count ) >= ( max ) ) \
+		Error( "Too many %s, max %d\n", ( what ), ( max ) )
 
 int k_memtotal;
 void *kalloc( int num, int size )
@@ -362,7 +392,7 @@ void SimplifyModel (void)
 	{
 		for (k = 0; k < MAXSTUDIOSRCBONES; k++)
 		{
-			model[i]->boneref[k] = keep_all_bones;
+			model[i]->boneref[k] = 0;
 		}
 		for (j = 0; j < model[i]->numverts; j++)
 		{
@@ -370,6 +400,26 @@ void SimplifyModel (void)
 		}
 		for (k = 0; k < MAXSTUDIOSRCBONES; k++)
 		{
+			// bacontsu: a bone an $attachment points at must survive even without vertices,
+			// otherwise SimplifyModel() would drop it and the attachment link lookup fails
+			for (j = 0; j < numattachments; j++)
+			{
+				if (!stricmp( attachment[j].bonename, model[i]->node[k].name ))
+				{
+					model[i]->boneref[k] = 1;
+					break;
+				}
+			}
+			// bacontsu: $keepbone / $protected names are matched against the original
+			// (pre-$renamebone) SMD names, exactly like vanilla does for vertices
+			for (j = 0; j < numkeepbones; j++)
+			{
+				if (!stricmp( model[i]->node[k].name, keepbone[j] ))
+				{
+					model[i]->boneref[k] = 1;
+					break;
+				}
+			}
 			// tag parent bones as used if child has been used
 			if (model[i]->boneref[k])
 			{
@@ -409,7 +459,7 @@ void SimplifyModel (void)
 		}
 		for (j = 0; j < model[i]->numbones; j++)
 		{
-			if (model[i]->boneref[j])
+			if (model[i]->boneref[j] || keep_all_bones)
 			{
 				k = findNode( model[i]->node[j].name );
 				if (k == -1)
@@ -1094,6 +1144,8 @@ int lookup_texture( char *texturename )
 		}
 	}
 
+	CHECK_LIMIT( numtextures, MAXSTUDIOSKINS, "textures in model" );
+
 	strcpyn( texture[i].name, texturename );
 
 	// XDM: allow such names as "tex_chrome_bright" - chrome and full brightness effects
@@ -1407,6 +1459,7 @@ void ResizeTexture( s_texture_t *ptexture )
 	int		i, j, s, t;
     byte	*pdest;
 	int		srcadjwidth;
+	double	pixels;
 
 // make the width a multiple of 4; some hardware requires this, and it ensures
 // dword alignment for each scan
@@ -1422,11 +1475,26 @@ void ResizeTexture( s_texture_t *ptexture )
 		((ptexture->skinwidth * ptexture->skinheight) / (float)(ptexture->srcwidth * ptexture->srcheight)) * 100.0,
 		ptexture->size );
 
-	if (ptexture->size > 1024 * 1024)
+	// bacontsu: raised the hard limit to 1024x1024 (vanilla GoldSrc only loads up to 640x480)
+	// and downgraded the vanilla limit to a warning so that one model can still target both
+	pixels = (double)ptexture->skinwidth * (double)ptexture->skinheight;
+
+	if (pixels > 1024.0 * 1024.0)
 	{
 		printf("%.0f %.0f %.0f %.0f\n", ptexture->min_s, ptexture->max_s, ptexture->min_t, ptexture->max_t );
-		Error("texture too large\n");
+		Error("Texture too large!\n");
 	}
+	if (pixels > 640.0 * 480.0)
+	{
+		printf("%.0f %.0f %.0f %.0f\n", ptexture->min_s, ptexture->max_s, ptexture->min_t, ptexture->max_t );
+		Note("Texture too large for vanilla GoldSrc.\n");
+	}
+	if (stristr( ptexture->name, "chrome" ) != NULL
+		&& (ptexture->skinwidth > 64 || ptexture->skinheight > 64))
+	{
+		Note("Chrome texture too large for vanilla GoldSrc.\n");
+	}
+
 	pdest = malloc( ptexture->size );
 	ptexture->pdata = pdest;
 
@@ -1854,7 +1922,7 @@ void Grab_Triangles( s_model_t *pmodel )
 }
 
 
-void Grab_Skeleton( s_node_t *pnodes, s_bone_t *pbones )
+void Grab_Skeleton( s_node_t *pnodes, s_bone_t *pbones, int numSrcBones )
 {
 	float x, y, z, xr, yr, zr;
 	char cmd[1024];
@@ -1865,6 +1933,11 @@ void Grab_Skeleton( s_node_t *pnodes, s_bone_t *pbones )
 		linecount++;
 		if (sscanf( line, "%d %f %f %f %f %f %f", &index, &x, &y, &z, &xr, &yr, &zr ) == 7)
 		{
+			if (index < 0 || index >= numSrcBones || index >= MAXSTUDIOSRCBONES)
+			{
+				Error( "%s: bogus bone index %d on line %d\n", filename, index, linecount );
+			}
+
 			pbones[index].pos[0] = x;
 			pbones[index].pos[1] = y;
 			pbones[index].pos[2] = z;
@@ -1880,7 +1953,7 @@ void Grab_Skeleton( s_node_t *pnodes, s_bone_t *pbones )
 
 			clip_rotations( pbones[index].rot );
 		}
-		else if (sscanf( line, "%s %d", cmd, &index ))
+		else if (sscanf( line, "%1023s %d", cmd, &index ))
 		{
 			if (strcmp( cmd, "time" ) == 0)
 			{
@@ -1906,8 +1979,17 @@ int Grab_Nodes( s_node_t *pnodes )
 	while (fgets( line, sizeof( line ), input ) != NULL)
 	{
 		linecount++;
-		if (sscanf( line, "%d \"%[^\"]\" %d", &index, name, &parent ) == 3)
+		if (sscanf( line, "%d \"%1023[^\"]\" %d", &index, name, &parent ) == 3)
 		{
+			if (index < 0 || index >= MAXSTUDIOSRCBONES)
+			{
+				Error( "%s: bogus bone index %d on line %d\n", filename, index, linecount );
+			}
+			if (parent < -1 || parent >= MAXSTUDIOSRCBONES)
+			{
+				Error( "%s: bogus parent bone index %d on line %d\n", filename, parent, linecount );
+			}
+
 			// check for duplicated bones
 			/*
 			if (strlen(pnodes[index].name) != 0)
@@ -1961,7 +2043,7 @@ void Grab_Studio ( s_model_t *pmodel )
 
 	while (fgets( line, sizeof( line ), input ) != NULL) {
 		linecount++;
-		sscanf( line, "%s %d", cmd, &option );
+		sscanf( line, "%1023s %d", cmd, &option );
 		if (strcmp( cmd, "version" ) == 0) {
 			if (option != 1) {
 				Error("bad version\n");
@@ -1971,7 +2053,7 @@ void Grab_Studio ( s_model_t *pmodel )
 			pmodel->numbones = Grab_Nodes( pmodel->node );
 		}
 		else if (strcmp( cmd, "skeleton" ) == 0) {
-			Grab_Skeleton( pmodel->node, pmodel->skeleton );
+			Grab_Skeleton( pmodel->node, pmodel->skeleton, pmodel->numbones );
 		}
 		else if (strcmp( cmd, "triangles" ) == 0) {
 			Grab_Triangles( pmodel );
@@ -2034,6 +2116,8 @@ void Option_Studio( )
 {
 	if (!GetToken (false)) return;
 
+	CHECK_LIMIT( nummodels, MAXSTUDIOMODELS, "models" );
+
 	model[nummodels] = kalloc( 1, sizeof( s_model_t ) );
 	bodypart[numbodyparts].pmodel[bodypart[numbodyparts].nummodels] = model[nummodels];
 
@@ -2068,6 +2152,8 @@ void Option_Studio( )
 
 int Option_Blank( )
 {
+	CHECK_LIMIT( nummodels, MAXSTUDIOMODELS, "models" );
+
 	model[nummodels] = kalloc( 1, sizeof( s_model_t ) );
 	bodypart[numbodyparts].pmodel[bodypart[numbodyparts].nummodels] = model[nummodels];
 
@@ -2084,6 +2170,8 @@ void Cmd_Bodygroup( )
 	int is_started = 0;
 
 	if (!GetToken(false)) return;
+
+	CHECK_LIMIT( numbodyparts, MAXSTUDIOBODYPARTS, "bodyparts" );
 
 	if (numbodyparts == 0) {
 		bodypart[numbodyparts].base = 1;
@@ -2118,6 +2206,8 @@ void Cmd_Body( )
 	int is_started = 0;
 
 	if (!GetToken(false)) return;
+
+	CHECK_LIMIT( numbodyparts, MAXSTUDIOBODYPARTS, "bodyparts" );
 
 	if (numbodyparts == 0) {
 		bodypart[numbodyparts].base = 1;
@@ -2157,6 +2247,15 @@ void Grab_Animation( s_animation_t *panim)
 		linecount++;
 		if (sscanf( line, "%d %f %f %f %f %f %f", &index, &pos[0], &pos[1], &pos[2], &rot[0], &rot[1], &rot[2] ) == 7)
 		{
+			if (index < 0 || index >= panim->numbones)
+			{
+				Error( "%s: bogus bone index %d on line %d\n", filename, index, linecount );
+			}
+			if (t >= MAXSTUDIOANIMATIONS)
+			{
+				Error( "%s: too many animation frames, max %d\n", filename, MAXSTUDIOANIMATIONS );
+			}
+
 			if (t >= panim->startframe && t <= panim->endframe)
 			{
 				if (panim->node[index].parent == -1) {
@@ -2186,7 +2285,7 @@ void Grab_Animation( s_animation_t *panim)
 				VectorCopy( rot, panim->rot[index][t] );
 			}
 		}
-		else if (sscanf( line, "%s %d", cmd, &index ))
+		else if (sscanf( line, "%1023s %d", cmd, &index ))
 		{
 			if (strcmp( cmd, "time" ) == 0)
 			{
@@ -2267,7 +2366,7 @@ void Option_Animation ( char *name, s_animation_t *panim )
 
 	while (fgets( line, sizeof( line ), input ) != NULL) {
 		linecount++;
-		sscanf( line, "%s %d", cmd, &option );
+		sscanf( line, "%1023s %d", cmd, &option );
 		if (strcmp( cmd, "version" ) == 0) {
 			if (option != 1) {
 				Error("bad version\n");
@@ -2334,7 +2433,8 @@ int Option_Event ( s_sequence_t *psequence )
 		if (token[0] == '}') // opps, hit the end
 			return 1;
 		// found an option
-		strcpy( psequence->event[psequence->numevents-1].options, token );
+		CopyString( psequence->event[psequence->numevents-1].options,
+			sizeof( psequence->event[0].options ), token );
 	}
 
 	return 0;
@@ -2431,6 +2531,10 @@ void Option_ScaleUp (void)
 
 int Cmd_SequenceGroup( )
 {
+	// bacontsu: sequencegroup[] is indexed by numseqgroups so guard the table itself rather
+	// than the (smaller) engine side limit on sequence groups
+	CHECK_LIMIT( numseqgroups, MAXSTUDIOSEQUENCES, "$sequencegroup entries" );
+
 	GetToken (false);
 	strcpyn( sequencegroup[numseqgroups].label, token );
 	numseqgroups++;
@@ -2472,6 +2576,8 @@ int Cmd_Sequence( )
 	int end = MAXSTUDIOANIMATIONS - 1;
 
 	if (!GetToken(false)) return 0;
+
+	CHECK_LIMIT( numseq, MAXSTUDIOSEQUENCES, "sequences" );
 
 	strcpyn( sequence[numseq].name, token );
 
@@ -2560,6 +2666,11 @@ int Cmd_Sequence( )
 			start = atoi( token );
 			GetToken( false );
 			end = atoi( token );
+			if (start < 0 || end < start || end >= MAXSTUDIOANIMATIONS)
+			{
+				Error( "invalid frame range %d..%d in sequence \"%s\", valid range is 0..%d\n",
+					start, end, sequence[numseq].name, MAXSTUDIOANIMATIONS - 1 );
+			}
 		}
 		else if (strnicmp("blend", token, 5 ) == 0)
 		{
@@ -2597,6 +2708,7 @@ int Cmd_Sequence( )
 		else if (stricmp("animation", token ) == 0)
 		{
 			GetToken(false);
+			CHECK_LIMIT( numblends, MAXSTUDIOBLENDS, "animations in sequence" );
 			strcpyn( smdfilename[numblends++], token );
 		}
 		else if ((i = lookupActivity( token )) != 0)
@@ -2607,6 +2719,7 @@ int Cmd_Sequence( )
 		}
 		else
 		{
+			CHECK_LIMIT( numblends, MAXSTUDIOBLENDS, "animations in sequence" );
 			strcpyn( smdfilename[numblends++], token );
 		}
 
@@ -2654,6 +2767,10 @@ int Cmd_Pivot (void)
 	if (GetToken (false))
 	{
 		int index = atoi(token);
+		if (index < 0 || index >= (int)(sizeof( pivotname ) / sizeof( pivotname[0] )))
+		{
+			Error( "invalid $pivot index %d, max %d\n", index, (int)(sizeof( pivotname ) / sizeof( pivotname[0] )) - 1 );
+		}
 		if (GetToken(false))
 		{
 			strcpyn( pivotname[index], token );
@@ -2668,6 +2785,9 @@ int Cmd_Controller (void)
 {
 	if (GetToken (false))
 	{
+		// bacontsu: has to be checked before the record below is written
+		CHECK_LIMIT( numbonecontrollers, MAXSTUDIOSRCBONES, "$controller entries" );
+
 		if (!strcmpi("mouth",token))
 		{
 			bonecontroller[numbonecontrollers].index = 4;
@@ -2747,6 +2867,8 @@ void Cmd_CBox (void)
 
 void Cmd_Mirror (void)
 {
+	CHECK_LIMIT( nummirrored, MAXSTUDIOSRCBONES, "$mirrorbone entries" );
+
 	GetToken (false);
 	strcpyn( mirrored[nummirrored++], token );
 }
@@ -2766,6 +2888,8 @@ int Cmd_TextureGroup( )
 
 	if (numtextures == 0)
 		Error( "texturegroups must follow model loading\n");
+
+	CHECK_LIMIT( numtexturegroups, 32, "$texturegroup entries" );
 
 	if (!GetToken(false)) return 0;
 
@@ -2818,6 +2942,8 @@ int Cmd_TextureGroup( )
 
 int Cmd_Hitgroup( )
 {
+	CHECK_LIMIT( numhitgroups, MAXSTUDIOSRCBONES, "$hgroup entries" );
+
 	GetToken (false);
 	hitgroup[numhitgroups].group = atoi( token );
 	GetToken (false);
@@ -2829,6 +2955,8 @@ int Cmd_Hitgroup( )
 
 int Cmd_Hitbox( )
 {
+	CHECK_LIMIT( numhitboxes, MAXSTUDIOSRCBONES, "$hbox entries" );
+
 	GetToken (false);
 	hitbox[numhitboxes].group = atoi( token );
 	GetToken (false);
@@ -2853,13 +2981,15 @@ int Cmd_Hitbox( )
 
 int Cmd_Attachment( )
 {
+	CHECK_LIMIT( numattachments, MAXSTUDIOSRCBONES, "$attachment entries" );
+
 	// index
 	GetToken (false);
 	attachment[numattachments].index = atoi( token );
 
 	// bone name
 	GetToken (false);
-	strcpyn( attachment[numattachments].bonename, token );
+	CopyString( attachment[numattachments].bonename, sizeof( attachment[0].bonename ), token );
 
 	// position
 	GetToken (false);
@@ -2881,41 +3011,91 @@ int Cmd_Attachment( )
 
 void Cmd_Renamebone( )
 {
+	CHECK_LIMIT( numrenamedbones, MAXSTUDIOSRCBONES, "$renamebone entries" );
+
 	// from
 	GetToken (false);
-	strcpy( renamedbone[numrenamedbones].from, token );
+	CopyString( renamedbone[numrenamedbones].from, sizeof( renamedbone[0].from ), token );
 
 	// to
 	GetToken (false);
-	strcpy( renamedbone[numrenamedbones].to, token );
+	CopyString( renamedbone[numrenamedbones].to, sizeof( renamedbone[0].to ), token );
 
 	numrenamedbones++;
+}
+
+// bacontsu: $keepbone <name> keeps an otherwise unused bone in the compiled model,
+// $protected is an exact alias of it so both spellings can be accepted side by side
+int Cmd_Keepbone( void )
+{
+	if (!GetToken (false))
+		return 0;
+
+	CHECK_LIMIT( numkeepbones, MAXSTUDIOSRCBONES, "$keepbone entries" );
+
+	CopyString( keepbone[numkeepbones], sizeof( keepbone[0] ), token );
+	numkeepbones++;
+
+	return 0;
+}
+
+// bacontsu: $keepallbones keeps every bone the source files declare
+int Cmd_KeepAllBones( void )
+{
+	keep_all_bones = true;
+	return 0;
 }
 
 // STUDIO_NF_FULLBRIGHT
 
 void Cmd_TexRenderMode(void)
 {
-	char tex_name[256];
-	GetToken(false);
-	strcpy(tex_name, token);
+	char	tex_name[256];
+	int		tex;
 
+	if (!TokenAvailable())
+		Error("missing texturename after $texrendermode\n");
 	GetToken(false);
+	CopyString( tex_name, sizeof( tex_name ), token );
+
+	if (!TokenAvailable())
+		Error("missing rendermode at $texrendermode\n");
+	GetToken(false);
+
+	tex = lookup_texture( tex_name );
+
 	if(!strcmp(token, "additive"))
 	{
-		texture[lookup_texture(tex_name)].flags |= STUDIO_NF_ADDITIVE;
+		texture[tex].flags |= STUDIO_NF_ADDITIVE;
 	}
 	else if(!strcmp(token, "masked"))
 	{
-		texture[lookup_texture(tex_name)].flags |= STUDIO_NF_TRANSPARENT;
+		texture[tex].flags |= STUDIO_NF_TRANSPARENT;
 	}
 	else if(!strcmp(token, "fullbright"))
 	{
-		texture[lookup_texture(tex_name)].flags |= STUDIO_NF_FULLBRIGHT;
+		texture[tex].flags |= STUDIO_NF_FULLBRIGHT;
+	}
+	else if(!strcmp(token, "nomips"))
+	{
+		texture[tex].flags |= STUDIO_NF_NOMIPS;
+	}
+	else if(!strcmp(token, "flatshade"))
+	{
+		texture[tex].flags |= STUDIO_NF_FLATSHADE;
+	}
+	else if(!strcmp(token, "alpha"))
+	{
+		texture[tex].flags |= STUDIO_NF_ALPHA;
+	}
+	else if(!strcmp(token, "chrome"))
+	{
+		texture[tex].flags |= STUDIO_NF_CHROME;
 	}
 	else
-		printf("Texture '%s' has unknown render mode '%s'!\n", tex_name, token);
-
+	{
+		Error("Invalid rendermode at $texrendermode, choices are:\nadditive\nmasked\nfullbright\nnomips\nflatshade\nalpha\nchrome\n");
+	}
 }
 
 void ParseScript (void)
@@ -2943,15 +3123,16 @@ void ParseScript (void)
 				Error ("Two $cd in one model");
 			cdset = true;
 			GetToken (false);
-			strcpy (cdpartial, token);
-			strcpy (cddir, ExpandPath(token));
+			CopyString (cdpartial, sizeof (cdpartial), token);
+			CopyString (cddir, sizeof (cddir), ExpandPath(token));
 		}
 		else if (!strcmp (token, "$cdtexture"))
 		{
 			while (TokenAvailable())
 			{
 				GetToken (false);
-				strcpy (cdtexture[cdtextureset], ExpandPath(token));
+				CHECK_LIMIT (cdtextureset, 16, "$cdtexture entries");
+				CopyString (cdtexture[cdtextureset], sizeof (cdtexture[0]), ExpandPath(token));
 				cdtextureset++;
 			}
 		}
@@ -3059,13 +3240,22 @@ void ParseScript (void)
 		{
 			Cmd_Renamebone ();
 		}
+		else if (!strcmp (token, "$keepbone") || !strcmp (token, "$protected"))
+		{
+			// bacontsu: both commands share one handler, $protected is an alias
+			Cmd_Keepbone ();
+		}
+		else if (!strcmp (token, "$keepallbones"))
+		{
+			Cmd_KeepAllBones ();
+		}
 		else if (!strcmp (token, "$texrendermode"))
 		{
 			Cmd_TexRenderMode();
 		}
 		else
 		{
-			Error ("bad command %s\n", token);
+			Error ("Bad command \"%s\"\n", token);
 		}
 	}
 }
@@ -3083,27 +3273,32 @@ int main (int argc, char **argv)
 	tag_normals = 0;
 	flip_triangles = 1;
 	maxseqgroupsize = 1024 * 1024;
-	keep_all_bones = 0;
+	keep_all_bones = false;
+	numkeepbones = 0;
 
 	normal_blend = cos( 2.0 * (Q_PI / 180.0));
 
 	texgamma = 1.8;
 
-	if (argc == 1)
-		Error("usage: studiomdl <flags>\n [-t texture]\n -r(tag reversed)\n -n(tag bad normals)\n -f(flip all triangles)\n [-a normal_blend_angle]\n -h(dump hboxes)\n -i(ignore warnings)\n [-g max_sequencegroup_size(K)]\n file.qc");
+	if (argc == 1 || (argc == 2 && !strcmp (argv[1], "-?")))
+		Error("usage: studiomdl <flags>\n [-t texture]\n -r(tag reversed)\n -n(tag bad normals)\n -f(flip all triangles)\n [-a normal_blend_angle]\n -h(dump hboxes)\n -i(ignore warnings)\n -k(keep unused bones)\n [-g max_sequencegroup_size(K)]\n file.qc");
 
 	for (i = 1; i < argc - 1; i++) {
 		if (argv[i][0] == '-') {
 			switch( argv[i][1] ) {
 			case 't':
 				i++;
-				strcpy ( defaulttexture[numrep], argv[i]);
+				if (numrep >= (int)(sizeof( defaulttexture ) / sizeof( defaulttexture[0] )))
+				{
+					Error( "Too many -t options, max %d\n", (int)(sizeof( defaulttexture ) / sizeof( defaulttexture[0] )) );
+				}
+				CopyString ( defaulttexture[numrep], sizeof( defaulttexture[0] ), argv[i]);
 				if (i < argc - 2 && argv[i + 1][0] != '-') {
 					i++;
-					strcpy ( sourcetexture[numrep], argv[i]);
-					printf ("Replaceing %s with %s\n", sourcetexture[numrep], defaulttexture[numrep] );
+					CopyString ( sourcetexture[numrep], sizeof( sourcetexture[0] ), argv[i]);
+					printf ("Replacing %s with %s\n", sourcetexture[numrep], defaulttexture[numrep] );
 				}
-				printf ("Using default texture: %s\n", defaulttexture);
+				printf ("Using default texture: %s\n", defaulttexture[numrep]);
 				numrep++;
 				break;
 			case 'r':
@@ -3129,8 +3324,19 @@ int main (int argc, char **argv)
 			case 'i':
 				ignore_warnings = 1;
 				break;
-			case 'b':
-				keep_all_bones = 1;
+			case 'k':
+			case 'b':	// bacontsu: historic spelling of this fork, kept so old build scripts keep working
+				keep_all_bones = true;
+				break;
+			case 'p':
+			case '2':
+				// bacontsu: force_powerof_two_textures was dropped by StudioMDL SC
+				printf( "Ignoring option -%c. No longer supported by this version of StudioMDL.\n", argv[i][1] );
+				break;
+			case '?':
+				break;
+			default:
+				printf( "Ignoring unknown option -%c.\n", argv[i][1] );
 				break;
 			}
 		}
@@ -3139,13 +3345,13 @@ int main (int argc, char **argv)
 	strcpy( sequencegroup[numseqgroups].label, "default" );
 	numseqgroups = 1;
 // load the script
-	strcpy (path, argv[i]);
+	CopyString (path, sizeof (path), argv[i]);
 	DefaultExtension (path, ".qc");
 	// SetQdirFromPath (path);
 	LoadScriptFile (path);
 // parse it
 	ClearModel ();
-	strcpy (outname, argv[i]);
+	CopyString (outname, sizeof (outname), argv[i]);
 	ParseScript ();
 	SetSkinValues ();
 	SimplifyModel ();

@@ -2,7 +2,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#ifdef WIN32
+// bacontsu: MinGW predefines WIN32, MSVC only defines _WIN32
+#if defined( _WIN32 ) || defined( WIN32 )
 #include <direct.h>
 #endif
 
@@ -10,7 +11,7 @@
 #include <libc.h>
 #endif
 
-#ifdef	WIN32
+#if defined( _WIN32 ) || defined( WIN32 )
 #define PATHSEPARATOR(c) ((c) == '\\' || (c) == '/')
 #else	//WIN32
 #define PATHSEPARATOR(c) ((c) == '/')
@@ -35,6 +36,17 @@ void Error (char *error, ...)
 	va_end (argptr);
 	printf ("\n");
 	exit (1);
+}
+
+// bacontsu: non fatal diagnostic, printed the way StudioMDL SC does it ("\nNOTE: ...\n")
+void Note (char *note, ...)
+{
+	va_list argptr;
+	printf ("\nNOTE: ");
+	va_start (argptr,note);
+	vprintf (note,argptr);
+	va_end (argptr);
+	printf ("\n");
 }
 
 // only printf if in verbose mode
@@ -229,7 +241,7 @@ double I_FloatTime (void)
 
 void Q_getwd (char *out)
 {
-#ifdef WIN32
+#if defined( _WIN32 ) || defined( WIN32 )
    _getcwd (out, 256);
    strcat (out, "\\");
 #else
@@ -239,7 +251,7 @@ void Q_getwd (char *out)
 
 void Q_mkdir (char *path)
 {
-#ifdef WIN32
+#if defined( _WIN32 ) || defined( WIN32 )
 	if (_mkdir (path) != -1)
 		return;
 #else

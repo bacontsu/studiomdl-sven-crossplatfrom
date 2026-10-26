@@ -16,9 +16,8 @@
 #ifndef _STUDIO_H_
 #define _STUDIO_H_
 
-#if !defined( _WIN32 )
+// bacontsu: int32_t is needed by mstudioseqgroup_t on every platform (MSVC ships stdint.h since VS2010)
 #include <stdint.h>
-#endif
 
 /*
 ==============================================================================
@@ -49,16 +48,28 @@ Studio models are position independent, so the cache manager can move them.
 // #define MAXSTUDIOPIVOTS		256
 // #define MAXSTUDIOCONTROLLERS 8
 
+// bacontsu: these limits can be overridden from the build system (e.g. "make USER_FLAGS=-DMAXSTUDIOSEQUENCES=1024")
+// MAXSTUDIOSEQUENCES and MAXSTUDIOANIMATIONS dominate the size of the compiler's static tables,
+// s_sequence_t is ~136KB with MAXSTUDIOANIMATIONS == 2048 so every sequence costs that much BSS
+
+#ifndef MAXSTUDIOTRIANGLES
 #define MAXSTUDIOTRIANGLES		32768	// max triangles per model
+#endif
+#ifndef MAXSTUDIOVERTS
 #define MAXSTUDIOVERTS		4096	// max vertices per submodel
+#endif
+#ifndef MAXSTUDIOSEQUENCES
 #define MAXSTUDIOSEQUENCES		256	// total animation sequences
-#define MAXSTUDIOSKINS		256	// total textures
+#endif
+#define MAXSTUDIOSKINS		256	// total textures (bacontsu: vanilla allows 100)
 #define MAXSTUDIOSRCBONES		512	// bones allowed at source movement
 #define MAXSTUDIOBONES		128	// total bones actually used
 #define MAXSTUDIOMODELS		32	// sub-models per model
 #define MAXSTUDIOBODYPARTS		32	// body parts per submodel
 #define MAXSTUDIOGROUPS		16	// sequence groups (e.g. barney01.mdl, barney02.mdl, e.t.c)
-#define MAXSTUDIOANIMATIONS		512	// max frames per sequence
+#ifndef MAXSTUDIOANIMATIONS
+#define MAXSTUDIOANIMATIONS		2048	// max frames per sequence (bacontsu: raised from 512 to the vanilla 2048)
+#endif
 #define MAXSTUDIOMESHES		256	// max textures per model
 #define MAXSTUDIOEVENTS		1024	// events per model
 #define MAXSTUDIOPIVOTS		256	// pivot points
@@ -178,12 +189,9 @@ typedef struct
 {
 	char				label[32];	// textual name
 	char				name[64];	// file name
-#if defined( _WIN32 )
-    int32				unused1;    // was "cache"  - index pointer
-#else
-    int32_t unused1;
-#endif
-  int					unused2;    // was "data" -  hack for group 0
+
+	int32_t				unused1;    // was "cache"  - index pointer
+	int					unused2;    // was "data" -  hack for group 0
 } mstudioseqgroup_t;
 
 // sequence descriptions

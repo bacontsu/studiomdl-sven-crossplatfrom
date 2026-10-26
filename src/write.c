@@ -360,7 +360,7 @@ void WriteModel( )
 	vec3_t			*pnorm;
 	mstudiomesh_t	*pmesh;
 	s_trianglevert_t *psrctri;
-	int				cur;
+	byte			*cur;
 	int				total_tris = 0;
 	int				total_strips = 0;
 
@@ -382,7 +382,7 @@ void WriteModel( )
 	}
 	ALIGN( pData );
 
-	cur = (int)pData;
+	cur = pData;
 	for (i = 0; i < nummodels; i++) 
 	{
 		int normmap[MAXSTUDIOVERTS];
@@ -449,8 +449,8 @@ void WriteModel( )
 		{
 			VectorCopy( model[i]->normal[normimap[j]].org, pnorm[j] );
 		}
-		printf("vertices  %6d bytes (%d vertices, %d normals)\n", pData - cur, model[i]->numverts, model[i]->numnorms);
-		cur = (int)pData;
+		printf("vertices  %6d bytes (%d vertices, %d normals)\n", (int)( pData - cur ), model[i]->numverts, model[i]->numnorms);
+		cur = pData;
 
 		// save mesh info
 		pmesh = (mstudiomesh_t *)pData;
@@ -486,8 +486,8 @@ void WriteModel( )
 			total_tris += pmesh[j].numtris;
 			total_strips += numcommandnodes;
 		}
-		printf("mesh      %6d bytes (%d tris, %d strips)\n", pData - cur, total_tris, total_strips);
-		cur = (int)pData;
+		printf("mesh      %6d bytes (%d tris, %d strips)\n", (int)( pData - cur ), total_tris, total_strips);
+		cur = pData;
 	}	
 }
 

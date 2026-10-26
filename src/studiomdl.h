@@ -35,6 +35,7 @@ EXTERN	vec3_t		cbox[2];
 EXTERN	int			maxseqgroupsize;
 EXTERN	int			split_textures;
 EXTERN	int			clip_texcoords;
+// bacontsu: -k / -b / $keepallbones keep every source bone, even unused ones
 EXTERN  qboolean		keep_all_bones;
 
 #define ROLL	2
@@ -99,6 +100,11 @@ typedef struct
 	char			to[32];
 } s_renamebone_t;
 EXTERN s_renamebone_t renamedbone[MAXSTUDIOSRCBONES];
+
+// bacontsu: bones listed with $keepbone / $protected survive SimplifyModel()
+// even when no vertex references them, the list holds the source (pre-$renamebone) names
+EXTERN int numkeepbones;
+EXTERN char keepbone[MAXSTUDIOSRCBONES][32];
 
 int numhitboxes;
 typedef struct

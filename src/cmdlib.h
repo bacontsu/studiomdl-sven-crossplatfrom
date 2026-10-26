@@ -59,6 +59,7 @@ char *ExpandPathAndArchive (char *path);
 double I_FloatTime (void);
 
 void	Error (char *error, ...);
+void	Note (char *note, ...);
 int		CheckParm (char *check);
 
 FILE	*SafeOpenWrite (char *filename);
