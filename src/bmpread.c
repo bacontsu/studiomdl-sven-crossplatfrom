@@ -1,11 +1,11 @@
 #if defined( _WIN32 )
 #include <windows.h>
 #include <STDIO.H>
-#endif
-
-#if !defined( _WIN32 )
+#else
 #include <stdio.h>
 #include <stdlib.h>
+// bacontsu: memmove() needs string.h, windows.h used to pull it in on the other branch
+#include <string.h>
 
 typedef int LONG;
 typedef unsigned int ULONG;	// bacontsu: Win32 ULONG is 32 bit, not the LP64 8 byte long

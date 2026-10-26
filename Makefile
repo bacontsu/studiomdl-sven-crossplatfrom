@@ -98,7 +98,8 @@ studiomdl: $(BIN_DIR) $(STUDIOMDLDIRS) $(BIN_DIR)/studiomdl$(EXE)
 test: studiomdl
 	cd tests $(CMDSEP) ..$(PATHSEP)$(BIN_DIR)$(PATHSEP)studiomdl$(EXE) tri.qc
 	cd tests $(CMDSEP) ..$(PATHSEP)$(BIN_DIR)$(PATHSEP)studiomdl$(EXE) keep.qc
-	@echo "smoke test passed: tests$(PATHSEP)tri.mdl, tests$(PATHSEP)keep.mdl"
+	cd tests $(CMDSEP) ..$(PATHSEP)$(BIN_DIR)$(PATHSEP)studiomdl$(EXE) tri_crlf.qc
+	@echo "smoke test passed: tests$(PATHSEP)tri.mdl, tests$(PATHSEP)keep.mdl, tests$(PATHSEP)tri_crlf.mdl"
 
 checkstudiomdl: studiomdl.log
 

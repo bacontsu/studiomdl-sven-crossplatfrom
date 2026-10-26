@@ -1666,6 +1666,23 @@ FILE	*input;
 char	line[1024];
 int		linecount;
 
+// bacontsu: SMD files edited on Windows have CRLF line endings and POSIX text mode does not
+// translate them, so every line is stripped of CR/LF here instead of relying on the platform.
+// Files are opened in binary mode so all platforms read the same bytes.
+char *ReadSMDLine( void )
+{
+	int len;
+
+	if (fgets( line, sizeof( line ), input ) == NULL)
+		return NULL;
+
+	len = (int)strlen( line );
+	while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+		line[--len] = '\0';
+
+	return line;
+}
+
 
 void Build_Reference( s_model_t *pmodel)
 {
@@ -1730,7 +1747,7 @@ void Grab_Triangles( s_model_t *pmodel )
 //
 	while (1)
 	{
-		if (fgets( line, sizeof( line ), input ) != NULL)
+		if (ReadSMDLine() != NULL)
 		{
 			s_mesh_t *pmesh;
 			char texturename[64];
@@ -1743,7 +1760,7 @@ void Grab_Triangles( s_model_t *pmodel )
 			linecount++;
 
 			// check for end
-			if (strcmp( "end\n", line ) == 0)
+			if (strcmp( "end", line ) == 0)
 				return;
 
 			// strip off trailing smag
@@ -1769,9 +1786,9 @@ void Grab_Triangles( s_model_t *pmodel )
 			if (texturename[0] == '\0')
 			{
 				// weird model problem, skip them
-				fgets( line, sizeof( line ), input );
-				fgets( line, sizeof( line ), input );
-				fgets( line, sizeof( line ), input );
+				ReadSMDLine();
+				ReadSMDLine();
+				ReadSMDLine();
 				linecount += 3;
 				continue;
 			}
@@ -1786,7 +1803,7 @@ void Grab_Triangles( s_model_t *pmodel )
 				else
 					ptriv = lookup_triangle( pmesh, pmesh->numtris ) + j;
 
-				if (fgets( line, sizeof( line ), input ) != NULL)
+				if (ReadSMDLine() != NULL)
 				{
 					s_vertex_t p;
 					vec3_t tmp;
@@ -1930,7 +1947,7 @@ void Grab_Skeleton( s_node_t *pnodes, s_bone_t *pbones, int numSrcBones )
 	char cmd[1024];
 	int index;
 
-	while (fgets( line, sizeof( line ), input ) != NULL)
+	while (ReadSMDLine() != NULL)
 	{
 		linecount++;
 		if (sscanf( line, "%d %f %f %f %f %f %f", &index, &x, &y, &z, &xr, &yr, &zr ) == 7)
@@ -1978,7 +1995,7 @@ int Grab_Nodes( s_node_t *pnodes )
 	int numbones = 0;
 	int i;
 
-	while (fgets( line, sizeof( line ), input ) != NULL)
+	while (ReadSMDLine() != NULL)
 	{
 		linecount++;
 		if (sscanf( line, "%d \"%1023[^\"]\" %d", &index, name, &parent ) == 3)
@@ -2038,12 +2055,12 @@ void Grab_Studio ( s_model_t *pmodel )
 
 	printf ("grabbing %s\n", filename);
 
-	if ((input = fopen(filename, "r")) == 0) {
+	if ((input = fopen(filename, "rb")) == 0) {
 		fprintf(stderr,"reader: could not open file '%s'\n", filename);
 	}
 	linecount = 0;
 
-	while (fgets( line, sizeof( line ), input ) != NULL) {
+	while (ReadSMDLine() != NULL) {
 		linecount++;
 		sscanf( line, "%1023s %d", cmd, &option );
 		if (strcmp( cmd, "version" ) == 0) {
@@ -2244,7 +2261,7 @@ void Grab_Animation( s_animation_t *panim)
 	cz = cos( zrotation );
 	sz = sin( zrotation );
 
-	while (fgets( line, sizeof( line ), input ) != NULL)
+	while (ReadSMDLine() != NULL)
 	{
 		linecount++;
 		if (sscanf( line, "%d %f %f %f %f %f %f", &index, &pos[0], &pos[1], &pos[2], &rot[0], &rot[1], &rot[2] ) == 7)
@@ -2360,13 +2377,13 @@ void Option_Animation ( char *name, s_animation_t *panim )
 
 	printf ("grabbing %s\n", filename);
 
-	if ((input = fopen(filename, "r")) == 0) {
+	if ((input = fopen(filename, "rb")) == 0) {
 		fprintf(stderr,"reader: could not open file '%s'\n", filename);
 		Error(0);
 	}
 	linecount = 0;
 
-	while (fgets( line, sizeof( line ), input ) != NULL) {
+	while (ReadSMDLine() != NULL) {
 		linecount++;
 		sscanf( line, "%1023s %d", cmd, &option );
 		if (strcmp( cmd, "version" ) == 0) {
@@ -2384,7 +2401,7 @@ void Option_Animation ( char *name, s_animation_t *panim )
 		else
 		{
 			printf("unknown studio command : %s\n", cmd );
-			while (fgets( line, sizeof( line ), input ) != NULL) {
+			while (ReadSMDLine() != NULL) {
 				linecount++;
 				if (strncmp(line,"end",3)==0)
 					break;
