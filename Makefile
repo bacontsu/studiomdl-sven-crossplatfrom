@@ -36,7 +36,13 @@ CC=gcc
 
 ARCH?=-m32
 USER_FLAGS=
-CFLAGS=-Wint-to-pointer-cast $(USER_FLAGS)
+
+# bacontsu: -Wint-to-pointer-cast only exists in clang, gcc does not know it
+ifneq (,$(findstring clang,$(CC)))
+WARN_FLAGS=-Wint-to-pointer-cast
+endif
+
+CFLAGS=$(WARN_FLAGS) $(USER_FLAGS)
 
 # Link math library on Linux
 ifeq ($(OS),Linux)
@@ -87,6 +93,12 @@ $(BIN_DIR):
 	-$(MKDIR) -p $@
 
 studiomdl: $(BIN_DIR) $(STUDIOMDLDIRS) $(BIN_DIR)/studiomdl$(EXE)
+
+# bacontsu: smoke test, compiles the tiny models in tests/ and fails if the compiler errors out
+test: studiomdl
+	cd tests $(CMDSEP) ..$(PATHSEP)$(BIN_DIR)$(PATHSEP)studiomdl$(EXE) tri.qc
+	cd tests $(CMDSEP) ..$(PATHSEP)$(BIN_DIR)$(PATHSEP)studiomdl$(EXE) keep.qc
+	@echo "smoke test passed: tests$(PATHSEP)tri.mdl, tests$(PATHSEP)keep.mdl"
 
 checkstudiomdl: studiomdl.log
 

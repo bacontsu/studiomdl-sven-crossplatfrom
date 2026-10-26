@@ -8,7 +8,7 @@
 #include <stdlib.h>
 
 typedef int LONG;
-typedef unsigned long ULONG;
+typedef unsigned int ULONG;	// bacontsu: Win32 ULONG is 32 bit, not the LP64 8 byte long
 typedef unsigned char BYTE;
 typedef unsigned char byte;
 typedef unsigned int DWORD;
@@ -124,7 +124,7 @@ int LoadBMP (const char* szFile, byte** ppbBits, byte** ppbPalette, int *width, 
 	if (bmih.biClrUsed == 0)
 		{
 		bmih.biClrUsed = 256;
-		cbPalBytes = (1 << bmih.biBitCount) * sizeof( RGBQUAD );
+		cbPalBytes = (ULONG)( ( 1 << bmih.biBitCount ) * (int)sizeof( RGBQUAD ) );
 		}
 	else
 		{

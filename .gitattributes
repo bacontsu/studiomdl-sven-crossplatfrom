@@ -1,0 +1,3 @@
+# bacontsu: keep the build scripts in the line endings their platform expects
+*.sh  text eol=lf
+*.bat text eol=crlf

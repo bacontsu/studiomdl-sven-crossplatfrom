@@ -43,7 +43,7 @@ EXTERN  qboolean		keep_all_bones;
 #define YAW		1
 
 extern vec_t Q_rint (vec_t in);
-extern void WriteFile (void);
+extern void WriteMdlFile (void);
 void *kalloc( int num, int size );
 
 typedef struct {

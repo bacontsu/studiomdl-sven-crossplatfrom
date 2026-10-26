@@ -34,6 +34,8 @@
 #define stricmp _stricmp
 #define strcmpi _stricmp
 #else
+// bacontsu: strcasecmp() and strncasecmp() are declared in strings.h on POSIX
+#include <strings.h>
 #define strnicmp strncasecmp
 #define stricmp strcasecmp
 #define strcmpi strcasecmp
@@ -1117,7 +1119,7 @@ char *stristr( const char *string, const char *string2 )
 {
 	int c, len;
 	c = tolower( *string2 );
-	len = strlen( string2 );
+	len = (int)strlen( string2 );
 
 	while (string) {
 		for (; *string && tolower( *string ) != c; string++);
@@ -1746,7 +1748,7 @@ void Grab_Triangles( s_model_t *pmodel )
 
 			// strip off trailing smag
 			strcpy( texturename, line );
-			for (i = strlen( texturename ) - 1; i >= 0 && ! isgraph( texturename[i] ); i--) ;
+			for (i = (int)strlen( texturename ) - 1; i >= 0 && ! isgraph( texturename[i] ); i--) ;
 			texturename[i + 1] = '\0';
 
 			// funky texture overrides
@@ -3355,7 +3357,7 @@ int main (int argc, char **argv)
 	ParseScript ();
 	SetSkinValues ();
 	SimplifyModel ();
-	WriteFile ();
+	WriteMdlFile ();
 
 	return 0;
 }

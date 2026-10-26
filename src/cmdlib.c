@@ -5,6 +5,9 @@
 // bacontsu: MinGW predefines WIN32, MSVC only defines _WIN32
 #if defined( _WIN32 ) || defined( WIN32 )
 #include <direct.h>
+#else
+// bacontsu: getcwd() lives in unistd.h on POSIX
+#include <unistd.h>
 #endif
 
 #ifdef NeXT
@@ -220,7 +223,7 @@ double I_FloatTime (void)
 	
 	time (&t);
 	
-	return t;
+	return (double)t;
 #if 0
 // more precise, less portable
 	struct timeval tp;
@@ -245,7 +248,8 @@ void Q_getwd (char *out)
    _getcwd (out, 256);
    strcat (out, "\\");
 #else
-   getwd (out);
+   // bacontsu: getwd() is legacy and missing on musl, getcwd() is the POSIX call
+   getcwd (out, 1024);
 #endif
 }
 
@@ -270,7 +274,7 @@ int	FileTime (char *path)
 	if (stat (path,&buf) == -1)
 		return -1;
 	
-	return buf.st_mtime;
+	return (int)buf.st_mtime;
 }
 
 //Parse a token out of a string (into global: char com_token[1024])
@@ -528,7 +532,7 @@ void    StripFilename (char *path)
 {
 	int             length;
 
-	length = strlen(path)-1;
+	length = (int)strlen(path)-1;
 	while (length > 0 && !PATHSEPARATOR(path[length]))
 		length--;
 	path[length] = 0;
@@ -538,7 +542,7 @@ void    StripExtension (char *path)
 {
 	int             length;
 
-	length = strlen(path)-1;
+	length = (int)strlen(path)-1;
 	while (length > 0 && path[length] != '.')
 	{
 		length--;

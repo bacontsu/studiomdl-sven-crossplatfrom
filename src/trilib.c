@@ -158,7 +158,7 @@ void LoadTriangleList (char *filename, triangle_t **pptri, int *numtriangles)
 		}
 	}
 
-	*numtriangles = ptri - *pptri;
+	*numtriangles = (int)( ptri - *pptri );
 
 	fclose (input);
 }

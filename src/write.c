@@ -20,7 +20,8 @@ byte *pStart;
 studiohdr_t *phdr;
 studioseqhdr_t *pseqhdr;
 
-#define ALIGN( a ) a = (byte *)((int)((byte *)a + 3) & ~ 3)
+// bacontsu: uintptr_t instead of int so the 64-bit builds do not truncate the pointer
+#define ALIGN( a ) a = (byte *)(((uintptr_t)((byte *)a + 3)) & ~ (uintptr_t)3)
 void WriteBoneInfo( )
 {
 	int i, j;
@@ -496,7 +497,9 @@ void WriteModel( )
 #define FILEBUFFER (16 * 1024 * 1024)
 	
 
-void WriteFile (void)
+// bacontsu: WriteFile clashes with the kernel32 WriteFile() when linking a 64-bit Windows
+// build, so the writer is named WriteMdlFile
+void WriteMdlFile (void)
 {
 	FILE		*modelouthandle;
 	int			total = 0;
@@ -527,7 +530,7 @@ void WriteFile (void)
 		ExtractFileBase( groupname, localname );
 		sprintf( sequencegroup[i].name, "models\\%s.mdl", localname );
 		strcpy( pseqhdr->name, sequencegroup[i].name );
-		pseqhdr->length = pData - pStart;
+		pseqhdr->length = (int)( pData - pStart );
 
 		printf("total     %6d\n", pseqhdr->length );
 
@@ -555,7 +558,7 @@ void WriteFile (void)
 
 		WriteTextures( );
 
-		phdr->length = pData - pStart;
+		phdr->length = (int)( pData - pStart );
 		printf("textures  %6d bytes\n", phdr->length );
 
 		SafeWrite( modelouthandle, pStart, phdr->length );
@@ -590,26 +593,26 @@ void WriteFile (void)
 	pData = (byte *)phdr + sizeof( studiohdr_t );
 
 	WriteBoneInfo( );
-	printf("bones     %6d bytes (%d)\n", pData - pStart - total, numbones );
-	total = pData - pStart;
+	printf("bones     %6d bytes (%d)\n", (int)( pData - pStart ) - total, numbones );
+	total = (int)( pData - pStart );
 
 	pData = WriteAnimations( pData, pStart, 0 );
 
 	WriteSequenceInfo( );
-	printf("sequences %6d bytes (%d frames) [%d:%02d]\n", pData - pStart - total, totalframes, (int)totalseconds / 60, (int)totalseconds % 60 );
-	total  = pData - pStart;
+	printf("sequences %6d bytes (%d frames) [%d:%02d]\n", (int)( pData - pStart ) - total, totalframes, (int)totalseconds / 60, (int)totalseconds % 60 );
+	total  = (int)( pData - pStart );
 
 	WriteModel( );
-	printf("models    %6d bytes\n", pData - pStart - total );
-	total  = pData - pStart;
+	printf("models    %6d bytes\n", (int)( pData - pStart ) - total );
+	total  = (int)( pData - pStart );
 
 	if (!split_textures)
 	{
 		WriteTextures( );
-		printf("textures  %6d bytes\n", pData - pStart - total );
+		printf("textures  %6d bytes\n", (int)( pData - pStart ) - total );
 	}
 
-	phdr->length = pData - pStart;
+	phdr->length = (int)( pData - pStart );
 
 	printf("total     %6d\n", phdr->length );
 
