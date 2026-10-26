@@ -1,10 +1,10 @@
-![studiomdl][studiomdl_banner]
 
 ## Overview
 
-studiomdl compiles [Studio Model Data][SMD] from [QC files][QC] to a [model file][MDL].
+studiomdl-sven-crossplatfrom compiles [Studio Model Data][SMD] from [QC files][QC] to a [model file][MDL].
 
 This is a cross-platform compatible version of [studiomdl][studiomdl_wiki] for Half-Life (GoldSrc).
+It uses some stuff from [sven-studiomdl](https://the303.org/backups/sven_studiomdl_2019.rar), reimplemented cleaner because i don't want to add mess to this already messed up compiler (no offense, original author, i meant valve's mess)
 
 ## Prerequestites
 
@@ -30,6 +30,10 @@ You can set architecture (default `-m32`), compiler (default `gcc`) and install 
 ```sh
 make CC=clang ARCH=-m64 INSTALL_PATH=/usr/bin USER_FLAGS="-O3 -march=native"
 ```
+
+The source tables (`MAXSTUDIOSEQUENCES`, `MAXSTUDIOANIMATIONS`, `MAXSTUDIOVERTS`,
+`MAXSTUDIOTRIANGLES`) can be raised without editing the source, e.g.
+`make USER_FLAGS=-DMAXSTUDIOSEQUENCES=1024`, at the cost of a bigger static binary.
 
 > **Note:** 64-bit build currently doesn't work, due to structs not using compatible data types.
 
@@ -63,11 +67,43 @@ studiomdl [options] <QC file>
   <dt><code>-i</code></dt>
   <dd>ignore warnings</dd>
 
+  <dt><code>-k</code></dt>
+  <dd>keep unused bones (`-b` is accepted as an alias of it)</dd>
+
   <dt><code>-g size</code></dt>
   <dd>max sequencegroup size</dd>
 </dl>
 
 > Note: Your QC and SMD files has to use `LF` (Unix) line-endings in order to work.
+
+### Sven Co-op extensions
+
+
+<dl>
+  <dt><code>$keepbone "&lt;bone&gt;"</code> / <code>$protected "&lt;bone&gt;"</code></dt>
+  <dd>keep a bone that no vertex references. Both spellings are the same command, and the
+  name is matched against the original SMD name, i.e. before <code>$renamebone</code> is
+  applied</dd>
+
+  <dt><code>$keepallbones</code> / <code>-k</code></dt>
+  <dd>keep every bone the source files declare (up to 128 bones in the compiled model)</dd>
+
+  <dt><code>$texrendermode "&lt;texture&gt;" &lt;mode&gt;</code></dt>
+  <dd>one of <code>additive</code>, <code>masked</code>, <code>fullbright</code>,
+  <code>nomips</code>, <code>flatshade</code>, <code>alpha</code> or <code>chrome</code></dd>
+</dl>
+
+Textures up to 1024×1024 are accepted. Anything above 640×480 still compiles but it prints
+  ```
+  NOTE: Texture too large for vanilla GoldSrc.
+  ```
+  so the same model can target Sven Co-op
+  and vanilla GoldSrc from one source.
+
+`-p`, `-2` (force power-of-two textures) were dropped.
+
+`$cliptotextures` is still *implemented* here (StudioMDL SC dropped it and only warns), so
+existing QCs keep working.
 
 ## Contribute
 
